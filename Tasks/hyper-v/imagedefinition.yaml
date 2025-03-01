@@ -1,0 +1,7 @@
+$schema: 1.0
+name: create-hyper-v-vm
+description: Creates a hyper-V VM
+author: Microsoft Corporation
+command: ".\\create-hyper-v-image.ps1"
+documentation:
+  notes: This task is used to create a Hyper-V VM
