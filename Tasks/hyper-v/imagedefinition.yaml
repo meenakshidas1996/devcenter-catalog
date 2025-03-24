@@ -6,9 +6,11 @@ tasks:
   - name: ~/powershell
     parameters:
        command: |
-        $blobUrl = 'https://linuxinvestigation.blob.core.windows.net/jess-and-meena/image-builder-user.vhdx'
+        $shouldDeleteFolder = $false
+        $blobUrl = 'https://jepettylinux.blob.core.windows.net/linux/linux-devbox.vhdx'
         if (-Not (Test-Path 'C:\tmp')) {
             mkdir C:\tmp
+            $shouldDeleteFolder = $true
         }
         $outputPath = 'C:\tmp\linux-image.vhdx'
         # To speed up downloading (still takes about ~6 min to download the file)
@@ -16,18 +18,29 @@ tasks:
         # Download the file
         Invoke-WebRequest -Uri $blobUrl -OutFile $outputPath
         Write-Host 'File downloaded successfully to $outputPath'
-        $vmName = 'linux-devbox'                         
-        $memoryStartupBytes = 4096MB                    
-        $switchName = 'Default Switch'                
+        $vmName = 'linux-devbox'
+        $switchName = 'Default Switch'
         # Verify the image file exists
         if (!(Test-Path -Path $outputPath)) {
             Write-Error 'Image file not found at $outputPath. Please check the path.'
             exit
         }
+        $hostRAM = (Get-ComputerInfo).CsTotalPhysicalMemory
+        $hostCPUs = (Get-VMHost).LogicalProcessorCount
+        $hostFreeSpace = (Get-Volume -DriveLetter C).SizeRemaining
+        $vmMemory = $hostRAM *.90 # Use 90% of the host RAM for the VM
+        # round down to ensure VM memory is even MB (Hyper-V requirement), reserve 5 GB for Hyper-V host
+        $vmMemory = ([math]::Floor($vmMemory / 1GB) * 1GB) - 5GB
+        $vhdSize = $hostFreeSpace * .90 # Use 90% of the free space for the VHD
         # Create the VM. For a VHDX file intended for UEFI boot, a Generation 2 VM is used.
-        New-VM -Name $vmName -MemoryStartupBytes $memoryStartupBytes -Generation 2 -SwitchName $switchName
+        New-VM -Name $vmName -MemoryStartupBytes $vmMemory -Generation 2 -SwitchName $switchName
+        # Set Static Memory (Disable Dynamic Memory)
+        Set-VMMemory -VMName $vmName -DynamicMemoryEnabled $false
         # Attach the downloaded VHD/VHDX file to the VM's SCSI Controller
+        New-VHD -Path $outputPath -SizeBytes $vhdSize -Dynamic
         Add-VMHardDiskDrive -VMName $vmName -Path $outputPath
+        # Assign Maximum CPUs
+        Set-VMProcessor -VMName $VMName -Count $HostCPUs
         # Optionally, set the attached VHD as the first boot device
         Set-VMFirmware -VMName $vmName -FirstBootDevice (Get-VMHardDiskDrive -VMName $vmName)
         # Disabling Secure boot
